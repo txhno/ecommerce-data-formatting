@@ -152,3 +152,10 @@ logs/
 # Local data files
 *.xlsx
 !template.xlsx
+
+.beads/
+.ralph-tui/
+.streamlit/
+
+# Feature scripts directory (temporary staging)
+features-to-add/
