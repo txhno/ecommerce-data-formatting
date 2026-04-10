@@ -62,7 +62,7 @@ def render_landing_page():
             <p>Reindex your input data to match a template's column structure.</p>
             <ul>
                 <li>Upload your data file</li>
-                <li>Select a template</li>
+                <li>Uses default template automatically</li>
                 <li>Download formatted output</li>
             </ul>
         </div>
@@ -169,6 +169,7 @@ def render_landing_page():
 def render_export_page():
     """Render the export formatting page."""
     settings = get_settings()
+    default_template_path = Path(__file__).parent / settings.export.default_template
 
     # Header with back button
     col1, col2 = st.columns([1, 4])
@@ -192,11 +193,7 @@ def render_export_page():
         )
 
     with col2:
-        template_file = st.file_uploader(
-            "Template Excel File",
-            type=["xlsx", "xls"],
-            key="export_template"
-        )
+        st.info(f"Using default template: `{settings.export.default_template}`")
 
     preserve_unknown = st.checkbox(
         "Preserve unknown columns",
@@ -211,11 +208,11 @@ def render_export_page():
         st.error(f"Input file exceeds maximum size ({settings.app.max_file_size_mb}MB)")
         input_file = None
 
-    if template_file and template_file.size > max_size:
-        st.error(f"Template file exceeds maximum size ({settings.app.max_file_size_mb}MB)")
-        template_file = None
+    if not default_template_path.exists():
+        st.error(f"Default template not found: {default_template_path}")
+        st.stop()
 
-    if input_file and template_file:
+    if input_file:
         output_filename = st.text_input(
             "Output Filename",
             value="Formatted_Output.xlsx",
@@ -232,11 +229,12 @@ def render_export_page():
             output_filename = "Formatted_Output.xlsx"
 
         if st.button("Format Excel File", type="primary"):
+            template_bytes = default_template_path.read_bytes()
             result = process_export(
                 input_file_data=input_file.getvalue(),
                 input_filename=input_file.name,
-                template_file_data=template_file.getvalue(),
-                template_filename=template_file.name,
+                template_file_data=template_bytes,
+                template_filename=default_template_path.name,
                 output_filename=output_filename,
                 preserve_unknown_columns=preserve_unknown
             )

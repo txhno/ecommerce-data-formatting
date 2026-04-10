@@ -37,7 +37,7 @@ class PathsConfig(BaseModel):
 
 class ExportConfig(BaseModel):
     """Export configuration model."""
-    default_template: str = Field(default="", description="Default template filename")
+    default_template: str = Field(default="new-template.xlsx", description="Default template filename")
     output_prefix: str = Field(default="Formatted_", description="Prefix for output filenames")
     preserve_unknown_columns: bool = Field(default=False, description="Keep columns not in template")
 
