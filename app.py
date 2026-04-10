@@ -169,7 +169,15 @@ def render_landing_page():
 def render_export_page():
     """Render the export formatting page."""
     settings = get_settings()
-    default_template_path = Path(__file__).parent / settings.export.default_template
+    configured_template = (settings.export.default_template or "").strip()
+    candidate_template_name = configured_template if configured_template else "new-template.xlsx"
+    default_template_path = Path(__file__).parent / candidate_template_name
+
+    # Fall back to repo-root template when config is blank/invalid or points to a directory.
+    if not default_template_path.exists() or default_template_path.is_dir():
+        fallback_template_path = Path(__file__).parent / "new-template.xlsx"
+        if fallback_template_path.exists() and fallback_template_path.is_file():
+            default_template_path = fallback_template_path
 
     # Header with back button
     col1, col2 = st.columns([1, 4])
@@ -193,7 +201,7 @@ def render_export_page():
         )
 
     with col2:
-        st.info(f"Using default template: `{settings.export.default_template}`")
+        st.info(f"Using default template: `{default_template_path.name}`")
 
     preserve_unknown = st.checkbox(
         "Preserve unknown columns",
@@ -208,8 +216,11 @@ def render_export_page():
         st.error(f"Input file exceeds maximum size ({settings.app.max_file_size_mb}MB)")
         input_file = None
 
-    if not default_template_path.exists():
-        st.error(f"Default template not found: {default_template_path}")
+    if not default_template_path.exists() or default_template_path.is_dir():
+        st.error(
+            f"Default template not found or invalid: {default_template_path}. "
+            "Please ensure new-template.xlsx is present at the app root."
+        )
         st.stop()
 
     if input_file:
