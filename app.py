@@ -8,6 +8,8 @@ import merging (combine size chart and product details).
 
 import streamlit as st
 from pathlib import Path
+from datetime import datetime
+import openpyxl
 
 from src.config import get_settings
 from src.core.export_processor import process_export, ExportProcessorResult
@@ -17,6 +19,22 @@ from src.core.merge_sample_processor import process_merge_sample, MergeSamplePro
 from src.utils.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
+
+
+def get_template_last_updated_label(template_path: Path) -> str:
+    """Build a user-friendly label from template workbook metadata."""
+    try:
+        wb = openpyxl.load_workbook(template_path, read_only=True)
+        modified = wb.properties.modified
+        wb.close()
+
+        if isinstance(modified, datetime):
+            return modified.strftime("%d %b %Y")
+    except Exception:
+        logger.warning("Unable to read template metadata", extra_data={"template_path": str(template_path)})
+
+    # Fallback to file mtime if workbook metadata is unavailable.
+    return datetime.fromtimestamp(template_path.stat().st_mtime).strftime("%d %b %Y")
 
 
 def setup_page():
@@ -201,7 +219,14 @@ def render_export_page():
         )
 
     with col2:
-        st.info(f"Using default template: `{default_template_path.name}`")
+        last_updated_on = get_template_last_updated_label(default_template_path)
+        st.info(f"Using Myntra template (last updated on {last_updated_on})")
+        template_file = st.file_uploader(
+            "Template Excel File (Optional Override)",
+            type=["xlsx", "xls"],
+            key="export_template",
+            help="Upload only if you want to override the default template for this run."
+        )
 
     preserve_unknown = st.checkbox(
         "Preserve unknown columns",
@@ -223,6 +248,10 @@ def render_export_page():
         )
         st.stop()
 
+    if template_file and template_file.size > max_size:
+        st.error(f"Template file exceeds maximum size ({settings.app.max_file_size_mb}MB)")
+        template_file = None
+
     if input_file:
         output_filename = st.text_input(
             "Output Filename",
@@ -240,12 +269,16 @@ def render_export_page():
             output_filename = "Formatted_Output.xlsx"
 
         if st.button("Format Excel File", type="primary"):
-            template_bytes = default_template_path.read_bytes()
+            selected_template_name = default_template_path.name
+            selected_template_data = default_template_path.read_bytes()
+            if template_file is not None:
+                selected_template_name = template_file.name
+                selected_template_data = template_file.getvalue()
             result = process_export(
                 input_file_data=input_file.getvalue(),
                 input_filename=input_file.name,
-                template_file_data=template_bytes,
-                template_filename=default_template_path.name,
+                template_file_data=selected_template_data,
+                template_filename=selected_template_name,
                 output_filename=output_filename,
                 preserve_unknown_columns=preserve_unknown
             )
