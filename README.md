@@ -1,11 +1,11 @@
-# Rubick CAST Formatting
+# Excel Data Formatting
 
-A tool for formatting Excel files to CAST import format.
+A tool for formatting Excel files for template-based export and import workflows.
 
 ## Features
 
 - **Export Format**: Reindex input data to match a template's column structure
-- **Import Merge**: Combine size chart (SKU) and product details (Style) files into CAST format
+- **Import Merge**: Combine size chart (SKU) and product details (Style) files into a unified workbook format
 
 ## Installation
 
@@ -31,11 +31,7 @@ python -m streamlit run app.py
 ### Command Line
 
 ```bash
-# Export format
-rubick-format export input.xlsx template.xlsx output.xlsx
-
-# Import merge
-rubick-format import sku.xlsx style.xlsx output.xlsx
+python -m src.cli
 ```
 
 ## Configuration
@@ -49,7 +45,7 @@ cp .env.example .env
 ## Project Structure
 
 ```
-rubick-cast-formatting/
+ecommerce-data-formatting/
 ├── app.py                 # Streamlit web application
 ├── pyproject.toml         # Project configuration
 ├── src/
