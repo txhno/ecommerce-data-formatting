@@ -30,7 +30,8 @@ class ImportValidationError(Exception):
     pass
 
 
-INVALID_HEADER_CHARS = re.compile(r"[^A-Za-z0-9()_\-#]")
+INVALID_HEADER_CHARS = re.compile(r"[^A-Za-z0-9()_\-# ]")
+DUPLICATE_HEADER_SUFFIX = re.compile(r"\.\d+$")
 EMPTY_TEXT_VALUES = {"", "nan", "none"}
 
 
@@ -42,7 +43,18 @@ def normalize_col(col: str) -> str:
 def sanitize_output_header(col: str) -> str:
     """Strip unsupported characters from output headers."""
     sanitized = INVALID_HEADER_CHARS.sub("", str(col))
-    return sanitized or "Column"
+    return sanitized if sanitized.strip() else "Column"
+
+
+def base_output_header(col: str) -> str:
+    """Return the display name for a header after removing duplicate suffixes."""
+    base_name = DUPLICATE_HEADER_SUFFIX.sub("", str(col))
+    return sanitize_output_header(base_name)
+
+
+def normalized_output_header(col: str) -> str:
+    """Return the canonical key used for grouping duplicate output columns."""
+    return normalize_col(base_output_header(col)) or "column"
 
 
 def has_meaningful_value(value) -> bool:
@@ -69,19 +81,19 @@ def consolidate_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
     if len(df.columns) == 0:
         return df.copy()
 
-    sanitized_columns = [sanitize_output_header(col) for col in df.columns]
     value_counts = [count_meaningful_values(df.iloc[:, idx]) for idx in range(len(df.columns))]
 
     groups: dict[str, list[int]] = {}
-    for idx, sanitized in enumerate(sanitized_columns):
-        groups.setdefault(sanitized, []).append(idx)
+    for idx, col in enumerate(df.columns):
+        groups.setdefault(normalized_output_header(col), []).append(idx)
 
     merged_columns = []
     merged_names = []
 
-    for sanitized, indices in sorted(groups.items(), key=lambda item: min(item[1])):
+    for _, indices in sorted(groups.items(), key=lambda item: min(item[1])):
         sorted_indices = sorted(indices, key=lambda idx: (-value_counts[idx], idx))
         merged = df.iloc[:, sorted_indices[0]].copy()
+        merged_name = base_output_header(df.columns[sorted_indices[0]])
 
         for idx in sorted_indices[1:]:
             series = df.iloc[:, idx]
@@ -89,7 +101,7 @@ def consolidate_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
             merged.loc[overwrite_mask] = series.loc[overwrite_mask]
 
         merged_columns.append(merged)
-        merged_names.append(sanitized)
+        merged_names.append(merged_name)
 
     consolidated = pd.concat(merged_columns, axis=1)
     consolidated.columns = merged_names
