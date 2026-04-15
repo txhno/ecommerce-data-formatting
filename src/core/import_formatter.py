@@ -5,10 +5,11 @@ Aggregates size chart rows per styleId, merges all tabs into one dataset,
 and outputs Excel with Types and Values sheets in CAST format.
 """
 
+from __future__ import annotations
+
 import re
-from pathlib import Path
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
 
 import pandas as pd
 
@@ -17,11 +18,11 @@ import pandas as pd
 class ImportResult:
     """Result of an import merging operation."""
     success: bool
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
     rows_processed: int = 0
     columns_count: int = 0
     sheets_processed: int = 0
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 
 class ImportValidationError(Exception):
@@ -29,12 +30,73 @@ class ImportValidationError(Exception):
     pass
 
 
+INVALID_HEADER_CHARS = re.compile(r"[^A-Za-z0-9()_\-#]")
+EMPTY_TEXT_VALUES = {"", "nan", "none"}
+
+
 def normalize_col(col: str) -> str:
     """Normalize column name for canonical mapping."""
     return re.sub(r"\s+", "", str(col).lower())
 
 
-def find_style_column(columns, sheet_name: str = "sheet") -> tuple[Optional[str], Optional[str]]:
+def sanitize_output_header(col: str) -> str:
+    """Strip unsupported characters from output headers."""
+    sanitized = INVALID_HEADER_CHARS.sub("", str(col))
+    return sanitized or "Column"
+
+
+def has_meaningful_value(value) -> bool:
+    """Return True when a cell contains usable data."""
+    if pd.isna(value):
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() not in EMPTY_TEXT_VALUES
+    return True
+
+
+def count_meaningful_values(series: pd.Series) -> int:
+    """Count non-empty values in a series."""
+    return int(series.map(has_meaningful_value).sum())
+
+
+def consolidate_duplicate_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Sanitize headers and merge duplicates into a single column.
+
+    The most-populated column is used as the base. Sparser duplicate columns
+    overwrite matching rows when they contain data.
+    """
+    if len(df.columns) == 0:
+        return df.copy()
+
+    sanitized_columns = [sanitize_output_header(col) for col in df.columns]
+    value_counts = [count_meaningful_values(df.iloc[:, idx]) for idx in range(len(df.columns))]
+
+    groups: dict[str, list[int]] = {}
+    for idx, sanitized in enumerate(sanitized_columns):
+        groups.setdefault(sanitized, []).append(idx)
+
+    merged_columns = []
+    merged_names = []
+
+    for sanitized, indices in sorted(groups.items(), key=lambda item: min(item[1])):
+        sorted_indices = sorted(indices, key=lambda idx: (-value_counts[idx], idx))
+        merged = df.iloc[:, sorted_indices[0]].copy()
+
+        for idx in sorted_indices[1:]:
+            series = df.iloc[:, idx]
+            overwrite_mask = series.map(has_meaningful_value)
+            merged.loc[overwrite_mask] = series.loc[overwrite_mask]
+
+        merged_columns.append(merged)
+        merged_names.append(sanitized)
+
+    consolidated = pd.concat(merged_columns, axis=1)
+    consolidated.columns = merged_names
+    return consolidated
+
+
+def find_style_column(columns, sheet_name: str = "sheet") -> tuple[str | None, str | None]:
     """
     Find the style ID column in a list of columns.
 
@@ -56,7 +118,7 @@ def find_style_column(columns, sheet_name: str = "sheet") -> tuple[Optional[str]
     return None, None
 
 
-def find_brand_size_column(columns) -> Optional[str]:
+def find_brand_size_column(columns) -> str | None:
     """Find the brand size column (starts brand size columns)."""
     for c in columns:
         s = str(c).lower()
@@ -104,7 +166,7 @@ def validate_excel_file(file_path: Path, file_name: str) -> None:
         raise ImportValidationError(f"{file_name}: Error reading file: {e}")
 
 
-def aggregate_list(series) -> Optional[str]:
+def aggregate_list(series) -> str | None:
     """Aggregate multiple values into a comma-separated string."""
     vals = (
         series.dropna()
@@ -130,7 +192,7 @@ def merge_sizechart_productdetails(
     size_chart_path: Path,
     product_details_path: Path,
     output_path: Path,
-    exclude_sheets: Optional[list[str]] = None
+    exclude_sheets: list[str] | None = None
 ) -> ImportResult:
     """
     Merge size chart and product details into CAST format.
@@ -289,7 +351,9 @@ def merge_sizechart_productdetails(
                 final_df[col] = None
 
         final_df = final_df[ordered_columns]
+        final_df = consolidate_duplicate_columns(final_df)
         final_df = final_df.where(pd.notnull(final_df), "")
+        ordered_columns = final_df.columns.tolist()
 
         # Build Types sheet
         types_columns = ["Column1", "Column2"] + ordered_columns
